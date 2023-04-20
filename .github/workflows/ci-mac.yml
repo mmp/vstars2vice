@@ -8,6 +8,9 @@ on:
     paths-ignore:
       - '**.md'
 
+permissions:
+  contents: write            
+
 jobs:
   build:
     strategy:
@@ -48,7 +51,5 @@ jobs:
     - name: Upload release (maybe)
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v1
-      permissions:
-        contents: write            
       with:
         files: 'vstars2vice'
