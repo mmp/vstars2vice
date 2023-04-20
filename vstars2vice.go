@@ -99,11 +99,27 @@ func (p Point2LL) DMSString() string {
 }
 
 func main() {
+	bail := func(e error) {
+		fmt.Fprintf(os.Stderr, "%v\n", e)
+		os.Exit(1)
+	}
+
+	if len(os.Args) != 3 {
+		fmt.Fprintf(os.Stderr, "vstars2vice [vstars-config.xml] [output.json]\n")
+		os.Exit(1)
+	}
+
+	f, err := os.Open(os.Args[1])
+	if err != nil {
+		bail(err)
+	}
+	defer f.Close()
+
 	var root XMLFacilityBundle
-	d := xml.NewDecoder(os.Stdin)
+	d := xml.NewDecoder(f)
 
 	if err := d.Decode(&root); err != nil {
-		panic(err)
+		bail(err)
 	}
 
 	m := make(map[string][]Point2LL)
@@ -144,14 +160,20 @@ func main() {
 			}
 			if segs != nil {
 				m[videomap.LongName] = segs
-				fmt.Fprintf(os.Stderr, "Video map: \"%s\"\n", videomap.LongName)
+				fmt.Printf("Video map: \"%s\"\n", videomap.LongName)
 			}
 		}
 	}
 
-	enc := json.NewEncoder(os.Stdout)
+	out, err := os.Create(os.Args[2])
+	if err != nil {
+		bail(err)
+	}
+	defer out.Close()
+
+	enc := json.NewEncoder(out)
 	enc.SetIndent("", "    ")
 	if err := enc.Encode(m); err != nil {
-		panic(err)
+		bail(err)
 	}
 }
