@@ -1,0 +1,48 @@
+name: build-windows
+
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ windows-latest ]
+
+    name: Build ${{ matrix.os }}
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v3
+
+    - name: Setup go
+      uses: actions/setup-go@v3
+      with:
+        go-version-file: go.mod
+        cache: true
+        cache-dependency-path: go.sum
+
+    - name: Build
+      run: |
+        go build -o ./vstars2vice.exe .
+        ls
+
+    - name: Save executable
+      uses: actions/upload-artifact@v3
+      with:
+        name: vstars2vice.exe
+        path: vstars2vice.exe
+
+    - name: Upload release (maybe)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: 'vstars2vice.exe'
