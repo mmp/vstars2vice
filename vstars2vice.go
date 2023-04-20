@@ -1,0 +1,157 @@
+// vstars2vice.go
+// Matt Pharr, MIT licensed
+//
+// Takes a vSTARS XML file on stdin, writes a vice-format video map JSON file on stdout.
+// The maps that were converted are printed to stderr.
+
+package main
+
+import (
+	"encoding/json"
+	"encoding/xml"
+	"fmt"
+	"golang.org/x/exp/constraints"
+	"math"
+	"os"
+	"strconv"
+)
+
+type XMLFacilityBundle struct {
+	VideoMaps []XMLVideoMaps `xml:"VideoMaps"`
+}
+
+type XMLVideoMaps struct {
+	Maps []XMLVideoMap `xml:"VideoMap"`
+}
+
+type XMLVideoMap struct {
+	LongName string      `xml:"LongName,attr"`
+	Group    string      `xml:"STARSGroup,attr"`
+	Elements XMLElements `xml:"Elements"`
+}
+
+type XMLElements struct {
+	Element []XMLElement `xml:"Element"`
+}
+
+type XMLElement struct {
+	Type     string `xml:"Name,attr"`
+	StartLon string `xml:"StartLon,attr"`
+	EndLon   string `xml:"EndLon,attr"`
+	StartLat string `xml:"StartLat,attr"`
+	EndLat   string `xml:"EndLat,attr"`
+}
+
+type Point2LL [2]float32
+
+func floor(v float32) float32 {
+	return float32(math.Floor(float64(v)))
+}
+
+func ceil(v float32) float32 {
+	return float32(math.Ceil(float64(v)))
+}
+
+func abs[V constraints.Integer | constraints.Float](x V) V {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+func (p Point2LL) MarshalJSON() ([]byte, error) {
+	return []byte("\"" + p.DMSString() + "\""), nil
+}
+
+// DMSString returns the position in degrees minutes, seconds, e.g.
+// N039.51.39.243, W075.16.29.511
+func (p Point2LL) DMSString() string {
+	format := func(v float32) string {
+		s := fmt.Sprintf("%03d", int(v))
+		v -= floor(v)
+		v *= 60
+		s += fmt.Sprintf(".%02d", int(v))
+		v -= floor(v)
+		v *= 60
+		s += fmt.Sprintf(".%02d", int(v))
+		v -= floor(v)
+		v *= 1000
+		s += fmt.Sprintf(".%03d", int(v))
+		return s
+	}
+
+	var s string
+	if p[1] > 0 {
+		s = "N"
+	} else {
+		s = "S"
+	}
+	s += format(abs(p[1]))
+
+	if p[0] > 0 {
+		s += ",E"
+	} else {
+		s += ",W"
+	}
+	s += format(abs(p[0]))
+
+	return s
+}
+
+func main() {
+	var root XMLFacilityBundle
+	d := xml.NewDecoder(os.Stdin)
+
+	if err := d.Decode(&root); err != nil {
+		panic(err)
+	}
+
+	m := make(map[string][]Point2LL)
+	for _, vm := range root.VideoMaps {
+		for _, videomap := range vm.Maps {
+			var segs []Point2LL
+			for _, el := range videomap.Elements.Element {
+				if el.StartLon == "0" && el.EndLon == "0" && el.StartLat == "0" && el.EndLat == "0" {
+					continue
+				}
+				slat, err := strconv.ParseFloat(el.StartLat, 32)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "%s: %v. Skipping this map.\n", videomap.LongName, err)
+					segs = nil
+					break
+				}
+				slong, err := strconv.ParseFloat(el.StartLon, 32)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "%s: %v. Skipping this map.\n", videomap.LongName, err)
+					segs = nil
+					break
+				}
+				elat, err := strconv.ParseFloat(el.EndLat, 32)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "%s: %v. Skipping this map.\n", videomap.LongName, err)
+					segs = nil
+					break
+				}
+				elong, err := strconv.ParseFloat(el.EndLon, 32)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "%s: %v. Skipping this map.\n", videomap.LongName, err)
+					segs = nil
+					break
+				}
+
+				segs = append(segs, Point2LL{float32(slong), float32(slat)})
+				segs = append(segs, Point2LL{float32(elong), float32(elat)})
+			}
+			if segs != nil {
+				m[videomap.LongName] = segs
+				fmt.Fprintf(os.Stderr, "Video map: \"%s\"\n", videomap.LongName)
+			}
+		}
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "    ")
+	if err := enc.Encode(m); err != nil {
+		panic(err)
+	}
+}
