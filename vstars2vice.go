@@ -21,21 +21,18 @@ type XMLFacilityBundle struct {
 }
 
 type XMLVideoMaps struct {
-	Maps []XMLVideoMap `xml:"VideoMap"`
+	XMLName xml.Name      `xml:"VideoMaps"`
+	Maps    []XMLVideoMap `xml:"VideoMap"`
 }
 
 type XMLVideoMap struct {
-	LongName string      `xml:"LongName,attr"`
-	Group    string      `xml:"STARSGroup,attr"`
-	Elements XMLElements `xml:"Elements"`
-}
-
-type XMLElements struct {
-	Element []XMLElement `xml:"Element"`
+	LongName string       `xml:"LongName,attr"`
+	Group    string       `xml:"STARSGroup,attr"`
+	Elements []XMLElement `xml:"Elements>Element"`
 }
 
 type XMLElement struct {
-	Type     string `xml:"Name,attr"`
+	Type     string `xml:"http://www.w3.org/2001/XMLSchema-instance type,attr"`
 	StartLon string `xml:"StartLon,attr"`
 	EndLon   string `xml:"EndLon,attr"`
 	StartLat string `xml:"StartLat,attr"`
@@ -122,37 +119,46 @@ func main() {
 		bail(err)
 	}
 
+	if len(root.VideoMaps) == 0 {
+		// If we didn't get anything, try with the VideoMaps element at the
+		// top level.
+		f.Seek(0, 0) // rewind
+		if err := d.Decode(&root.VideoMaps); err != nil {
+			bail(err)
+		}
+	}
+
 	m := make(map[string][]Point2LL)
 	for _, vm := range root.VideoMaps {
 		for _, videomap := range vm.Maps {
 			var segs []Point2LL
-			for _, el := range videomap.Elements.Element {
+			for _, el := range videomap.Elements {
+				if el.Type != "Line" {
+					continue
+				}
+
 				if el.StartLon == "0" && el.EndLon == "0" && el.StartLat == "0" && el.EndLat == "0" {
 					continue
 				}
 				slat, err := strconv.ParseFloat(el.StartLat, 32)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "%s: %v. Skipping this map.\n", videomap.LongName, err)
-					segs = nil
-					break
+					fmt.Fprintf(os.Stderr, "%s: %v. Skipping this segment.\n", videomap.LongName, err)
+					continue
 				}
 				slong, err := strconv.ParseFloat(el.StartLon, 32)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "%s: %v. Skipping this map.\n", videomap.LongName, err)
-					segs = nil
-					break
+					fmt.Fprintf(os.Stderr, "%s: %v. Skipping this segment.\n", videomap.LongName, err)
+					continue
 				}
 				elat, err := strconv.ParseFloat(el.EndLat, 32)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "%s: %v. Skipping this map.\n", videomap.LongName, err)
-					segs = nil
-					break
+					fmt.Fprintf(os.Stderr, "%s: %v. Skipping this segment.\n", videomap.LongName, err)
+					continue
 				}
 				elong, err := strconv.ParseFloat(el.EndLon, 32)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "%s: %v. Skipping this map.\n", videomap.LongName, err)
-					segs = nil
-					break
+					fmt.Fprintf(os.Stderr, "%s: %v. Skipping this segment.\n", videomap.LongName, err)
+					continue
 				}
 
 				segs = append(segs, Point2LL{float32(slong), float32(slat)})
@@ -160,7 +166,7 @@ func main() {
 			}
 			if segs != nil {
 				m[videomap.LongName] = segs
-				fmt.Printf("Video map: \"%s\"\n", videomap.LongName)
+				fmt.Printf("Video map: \"%s\" with %d line segments\n", videomap.LongName, len(segs))
 			}
 		}
 	}
